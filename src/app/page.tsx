@@ -1,101 +1,144 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+
+interface FileContent {
+  name: string;
+  content: string;
+}
+
+interface SearchResult {
+  pageContent: string;
+  metadata: {
+    source: string;
+  };
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [files, setFiles] = useState<FileContent[]>([]);
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  async function getGitHubContent(repoUrl: string) {
+    try {
+      const response = await fetch(
+        `/api/github_content?repoUrl=${encodeURIComponent(repoUrl)}`
+      );
+      if (!response.ok)
+        throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      setFiles(data);
+      return data;
+    } catch (error) {
+      console.error("Error fetching GitHub content:", error);
+      return null;
+    }
+  }
+
+  const handleSearch = async () => {
+    try {
+      const response = await fetch(
+        `/api/search?query=${encodeURIComponent(query)}`
+      );
+      if (!response.ok) throw new Error("Search failed");
+      const results = await response.json();
+      setSearchResults(results);
+    } catch (error) {
+      console.error("Search error:", error);
+    }
+  };
+  const handleInsert = async () => {
+    setIsLoading(true);
+    try {
+      await getGitHubContent(repoUrl);
+      alert("Repository content inserted into FAISS successfully!");
+    } catch (error) {
+      console.error("Insert error:", error);
+      alert("Failed to insert repository content");
+    }
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="container mx-auto p-6">
+      {/* Repository Input Section */}
+      <div className="mb-8 p-6 bg-white rounded-lg shadow">
+        <h2 className="text-2xl font-bold mb-4">GitHub Repository</h2>
+        <div className="flex gap-4">
+          <input
+            type="text"
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            className="flex-grow p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter GitHub repository URL"
+          />
+          <button
+            onClick={handleInsert}
+            disabled={isLoading}
+            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            {isLoading ? "Processing..." : "Insert into FAISS"}
+          </button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+      </div>
+
+      {/* Search Section */}
+      <div className="mb-8 p-6 bg-white rounded-lg shadow">
+        <h2 className="text-2xl font-bold mb-4">Search Repository</h2>
+        <div className="flex gap-4">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="flex-grow p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Enter your search query"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <button
+            onClick={handleSearch}
+            className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+          >
+            Search FAISS
+          </button>
+        </div>
+      </div>
+
+      {/* Search Results Section */}
+      {searchResults.length > 0 && (
+        <div className="mb-8 p-6 bg-white rounded-lg shadow">
+          <h2 className="text-2xl font-bold mb-4">Search Results</h2>
+          <div className="space-y-4">
+            {searchResults.map((result, index) => (
+              <div key={index} className="p-4 border rounded-lg">
+                <h3 className="font-bold text-lg text-blue-600">
+                  {result.metadata.source}
+                </h3>
+                <pre className="mt-2 p-4 bg-gray-50 rounded-lg overflow-x-auto">
+                  <code>{result.pageContent}</code>
+                </pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Repository Files Section */}
+      {files.length > 0 && (
+        <div className="p-6 bg-white rounded-lg shadow">
+          <h2 className="text-2xl font-bold mb-4">Repository Files</h2>
+          <div className="space-y-4">
+            {files.map((file, index) => (
+              <div key={index} className="p-4 border rounded-lg">
+                <h3 className="font-bold text-lg text-blue-600">{file.name}</h3>
+                <pre className="mt-2 p-4 bg-gray-50 rounded-lg overflow-x-auto">
+                  <code>{file.content}</code>
+                </pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
