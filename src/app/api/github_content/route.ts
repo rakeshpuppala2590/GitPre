@@ -112,13 +112,9 @@ export async function GET(request: Request) {
     await execPromise(`rm -rf ${repoPath}`);
     await execPromise(`git clone ${repoUrl} ${repoPath}`);
 
-    if (!process.env.HUGGINGFACE_API_KEY) {
-      throw new Error("HUGGINGFACE_API_KEY is not configured");
-    }
-
     const filesContent = getMainFilesContent(repoPath);
-    await createVectorStore(filesContent);
-    return NextResponse.json(filesContent);
+    await createVectorStore(filesContent, repoUrl);
+    return NextResponse.json({ files: filesContent, namespace: repoUrl });
   } catch (e) {
     console.error(`Error: ${e}`);
     return NextResponse.json(

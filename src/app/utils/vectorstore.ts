@@ -1,16 +1,13 @@
 import { Document } from "langchain/document";
 import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
-import { RedisVectorStore } from "@langchain/community/vectorstores/redis";
-import { createClient } from "redis";
+import { PineconeStore } from "@langchain/pinecone";
+import { Pinecone } from "@pinecone-database/pinecone";
 
-const REDIS_URL = "redis://localhost:6379";
-const INDEX_NAME = "code_repository";
+const INDEX_NAME = "gitpre";
 
-const createRedisClient = async () => {
-  const client = createClient({ url: REDIS_URL });
-  await client.connect();
-  return client;
-};
+const pinecone = new Pinecone({
+  apiKey: process.env.PINECONE_API_KEY!,
+});
 
 const getEmbeddings = async () => {
   const apiKey = process.env.HUGGINGFACE_API_KEY;
@@ -24,10 +21,11 @@ const getEmbeddings = async () => {
 };
 
 export async function createVectorStore(
-  files: { name: string; content: string }[]
+  files: { name: string; content: string }[],
+  namespace: string
 ) {
   try {
-    const client = await createRedisClient();
+    const index = pinecone.Index(INDEX_NAME);
     const documents = files.map(
       (file) =>
         new Document({
@@ -37,12 +35,12 @@ export async function createVectorStore(
     );
 
     const embeddings = await getEmbeddings();
-    const vectorStore = await RedisVectorStore.fromDocuments(
+    const vectorStore = await PineconeStore.fromDocuments(
       documents,
       embeddings,
       {
-        redisClient: client,
-        indexName: INDEX_NAME,
+        pineconeIndex: index,
+        namespace,
       }
     );
 
@@ -53,18 +51,31 @@ export async function createVectorStore(
   }
 }
 
-export async function queryVectorStore(query: string) {
+export async function queryVectorStore(query: string, namespace: string) {
   try {
-    const client = await createRedisClient();
+    const index = pinecone.Index(INDEX_NAME);
     const embeddings = await getEmbeddings();
-    const vectorStore = new RedisVectorStore(embeddings, {
-      redisClient: client,
-      indexName: INDEX_NAME,
+    const vectorStore = await PineconeStore.fromExistingIndex(embeddings, {
+      pineconeIndex: index,
+      namespace,
     });
 
-    return await vectorStore.similaritySearch(query, 5);
+    // Ensure we get exactly 5 results
+    const results = await vectorStore.similaritySearch(query, 5);
+    return results;
   } catch (error) {
     console.error("Error querying vector store:", error);
+    throw error;
+  }
+}
+
+export async function getAvailableNamespaces(): Promise<string[]> {
+  try {
+    const index = pinecone.Index(INDEX_NAME);
+    const stats = await index.describeIndexStats();
+    return Object.keys(stats.namespaces || {});
+  } catch (error) {
+    console.error("Error fetching namespaces:", error);
     throw error;
   }
 }

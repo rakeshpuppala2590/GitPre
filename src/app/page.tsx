@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface FileContent {
   name: string;
@@ -12,6 +12,7 @@ interface SearchResult {
   metadata: {
     source: string;
   };
+  score?: number;
 }
 
 export default function Home() {
@@ -19,9 +20,41 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [repoUrl, setRepoUrl] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [availableNamespaces, setAvailableNamespaces] = useState<string[]>([]);
+  const [selectedNamespace, setSelectedNamespace] = useState("");
+  const [isInserting, setIsInserting] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
-  async function getGitHubContent(repoUrl: string) {
+  useEffect(() => {
+    const fetchNamespaces = async () => {
+      try {
+        const response = await fetch("/api/namespaces", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (Array.isArray(data.namespaces)) {
+          setAvailableNamespaces(data.namespaces);
+        }
+      } catch (error) {
+        console.error("Error fetching namespaces:", error);
+        setAvailableNamespaces([]);
+      }
+    };
+
+    fetchNamespaces();
+  }, []);
+
+  const handleInsert = async () => {
+    if (!repoUrl) return;
+    setIsInserting(true);
     try {
       const response = await fetch(
         `/api/github_content?repoUrl=${encodeURIComponent(repoUrl)}`
@@ -29,110 +62,140 @@ export default function Home() {
       if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      setFiles(data);
-      return data;
-    } catch (error) {
-      console.error("Error fetching GitHub content:", error);
-      return null;
-    }
-  }
-
-  const handleSearch = async () => {
-    try {
-      const response = await fetch(
-        `/api/search?query=${encodeURIComponent(query)}`
+      setFiles(data.files);
+      const newNamespace = data.namespace;
+      setAvailableNamespaces((prev) =>
+        Array.from(new Set([...prev, newNamespace]))
       );
-      if (!response.ok) throw new Error("Search failed");
-      const results = await response.json();
-      setSearchResults(results);
-    } catch (error) {
-      console.error("Search error:", error);
-    }
-  };
-  const handleInsert = async () => {
-    setIsLoading(true);
-    try {
-      await getGitHubContent(repoUrl);
-      alert("Repository content inserted into FAISS successfully!");
+      setSelectedNamespace(newNamespace);
+      setRepoUrl("");
+      alert("Repository content inserted into Pinecone successfully!");
     } catch (error) {
       console.error("Insert error:", error);
       alert("Failed to insert repository content");
+    } finally {
+      setIsInserting(false);
     }
-    setIsLoading(false);
+  };
+
+  const handleSearch = async () => {
+    if (!query || !selectedNamespace) return;
+    setIsSearching(true);
+    try {
+      const response = await fetch(
+        `/api/search?query=${encodeURIComponent(
+          query
+        )}&namespace=${encodeURIComponent(selectedNamespace)}`
+      );
+      if (!response.ok) throw new Error("Search failed");
+
+      const data = await response.json();
+      console.log("Raw search response:", data);
+
+      // Check if data is in expected format
+      if (!Array.isArray(data)) {
+        console.error("Unexpected response format:", data);
+        throw new Error("Invalid response format");
+      }
+
+      // Process and set results
+      const processedResults = data.map((result) => ({
+        pageContent: result.pageContent,
+        metadata: {
+          source: result.metadata?.source || "Unknown",
+        },
+        score: result.score,
+      }));
+
+      console.log("Processed results:", processedResults);
+      setSearchResults(processedResults);
+    } catch (error) {
+      console.error("Search error:", error);
+      alert("Search failed");
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   return (
     <div className="container mx-auto p-6">
-      {/* Repository Input Section */}
       <div className="mb-8 p-6 bg-white rounded-lg shadow">
-        <h2 className="text-2xl font-bold mb-4">GitHub Repository</h2>
+        <h2 className="text-2xl font-bold mb-4">Add Repository to Pinecone</h2>
         <div className="flex gap-4">
           <input
             type="text"
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
-            className="flex-grow p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-grow p-3 border rounded-lg"
             placeholder="Enter GitHub repository URL"
+            disabled={isInserting}
           />
           <button
             onClick={handleInsert}
-            disabled={isLoading}
-            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            disabled={isInserting || !repoUrl}
+            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
           >
-            {isLoading ? "Processing..." : "Insert into FAISS"}
+            {isInserting ? "Adding to Pinecone..." : "Add Repository"}
           </button>
         </div>
       </div>
 
-      {/* Search Section */}
       <div className="mb-8 p-6 bg-white rounded-lg shadow">
-        <h2 className="text-2xl font-bold mb-4">Search Repository</h2>
-        <div className="flex gap-4">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="flex-grow p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Enter your search query"
-          />
-          <button
-            onClick={handleSearch}
-            className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+        <h2 className="text-2xl font-bold mb-4">Search in Pinecone</h2>
+        <div className="space-y-4">
+          <select
+            value={selectedNamespace}
+            onChange={(e) => setSelectedNamespace(e.target.value)}
+            className="w-full p-3 border rounded-lg mb-4"
           >
-            Search FAISS
-          </button>
-        </div>
-      </div>
-
-      {/* Search Results Section */}
-      {searchResults.length > 0 && (
-        <div className="mb-8 p-6 bg-white rounded-lg shadow">
-          <h2 className="text-2xl font-bold mb-4">Search Results</h2>
-          <div className="space-y-4">
-            {searchResults.map((result, index) => (
-              <div key={index} className="p-4 border rounded-lg">
-                <h3 className="font-bold text-lg text-blue-600">
-                  {result.metadata.source}
-                </h3>
-                <pre className="mt-2 p-4 bg-gray-50 rounded-lg overflow-x-auto">
-                  <code>{result.pageContent}</code>
-                </pre>
-              </div>
+            <option value="">Select a repository</option>
+            {availableNamespaces.map((namespace, index) => (
+              <option key={index} value={namespace}>
+                {namespace}
+              </option>
             ))}
+          </select>
+          <div className="flex gap-4">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-grow p-3 border rounded-lg"
+              placeholder="Enter your search query"
+              disabled={!selectedNamespace || isSearching}
+            />
+            <button
+              onClick={handleSearch}
+              disabled={!selectedNamespace || !query || isSearching}
+              className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-400"
+            >
+              {isSearching ? "Searching..." : "Search"}
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Repository Files Section */}
-      {files.length > 0 && (
-        <div className="p-6 bg-white rounded-lg shadow">
-          <h2 className="text-2xl font-bold mb-4">Repository Files</h2>
-          <div className="space-y-4">
-            {files.map((file, index) => (
-              <div key={index} className="p-4 border rounded-lg">
-                <h3 className="font-bold text-lg text-blue-600">{file.name}</h3>
-                <pre className="mt-2 p-4 bg-gray-50 rounded-lg overflow-x-auto">
-                  <code>{file.content}</code>
+      {searchResults && searchResults.length > 0 && (
+        <div className="mb-8 p-6 bg-white rounded-lg shadow">
+          <h2 className="text-2xl font-bold mb-4">
+            Top {Math.min(5, searchResults.length)} Search Results
+          </h2>
+          <div className="space-y-6">
+            {searchResults.slice(0, 5).map((result, index) => (
+              <div key={index} className="p-6 border rounded-lg bg-gray-50">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold text-lg text-blue-600">
+                    {result.metadata?.source || "Unknown source"}
+                  </h3>
+                  <span className="text-sm text-gray-500">
+                    Match #{index + 1}
+                  </span>
+                </div>
+                <pre className="p-4 bg-white rounded-lg overflow-x-auto border">
+                  <code className="text-sm">
+                    {result.pageContent || "No content"}
+                  </code>
                 </pre>
               </div>
             ))}
